@@ -1,0 +1,1111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Deal Rush</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@500;600&family=Manrope:wght@500;700;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+/* Layout: phone runner game (canvas + HUD + deal-review overlay) plus a big-screen leaderboard at #board. Single dark look by choice. */
+:root {
+  --bg: #0e1a2b;
+  --panel: #172a44;
+  --panel-2: #1d3454;
+  --line: #2b4a72;
+  --fg: #eef3f9;
+  --muted: #93a8c4;
+  --accent: #ffb000;
+  --accent-ink: #1a1200;
+  --good: #34d3a0;
+  --bad: #ff6272;
+  --ai: #7cc4ff;
+  --ground: #0a121e;
+  --font-display: "Archivo Black", "Arial Black", Impact, sans-serif;
+  --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.4;
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  -webkit-tap-highlight-color: transparent;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+#app { max-width: 520px; height: 100%; margin: 0 auto; display: flex; flex-direction: column; min-height: 0; }
+body.board #app { max-width: none; }
+.screen { display: flex; flex-direction: column; gap: 14px; min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; }
+h1, h2, h3, h4, p { margin: 0; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--ai); outline-offset: 2px; }
+a { color: var(--ai); font-weight: 700; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+
+/* Start */
+.hero { margin-top: 0; display: flex; flex-direction: column; gap: 10px; }
+.hero h1 { font-family: var(--font-display); font-size: clamp(44px, 13vw, 76px); line-height: .92; text-wrap: balance; }
+.hero h1 span { color: var(--accent); }
+.lede { color: var(--muted); font-size: 15px; max-width: 36ch; }
+.rules { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.rules li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; align-items: baseline; background: var(--panel); border-radius: 10px; padding: 8px 12px; min-width: 0; font-size: 14px; }
+.rules b { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.rules .g { color: var(--good); } .rules .r { color: var(--bad); } .rules .a { color: var(--ai); } .rules .y { color: var(--accent); }
+.name-row { display: flex; flex-direction: column; gap: 6px; }
+.name-row label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.how summary { cursor: pointer; font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 600; padding: 4px 0 8px; }
+.name-row input { min-width: 0; background: var(--panel); border: 2px solid var(--line); color: var(--fg); border-radius: 12px; padding: 13px 14px; font: 700 17px var(--font-body); width: 100%; }
+.name-row.err input { border-color: var(--bad); }
+.big-btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 14px; padding: 17px; font-family: var(--font-display); font-size: 22px; width: 100%; }
+.big-btn:active { transform: translateY(2px); }
+.ghost-btn { background: transparent; border: 1px solid var(--line); border-radius: 12px; padding: 11px; width: 100%; font-weight: 700; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.small { text-align: center; color: var(--muted); font-family: var(--font-mono); font-size: 12px; }
+
+/* Leaderboard lists */
+.lb h3 { font-family: var(--font-display); font-size: 16px; margin-bottom: 6px; }
+.lb ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lb li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; background: var(--panel); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+.lb li.you { outline: 2px solid var(--accent); }
+.lb .rk { font-family: var(--font-display); color: var(--accent); }
+.lb .nm { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb .sc { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.lb .empty { color: var(--muted); font-size: 13px; padding: 6px 2px; }
+
+/* Game */
+.game { overflow: hidden; gap: 8px; }
+.hud { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 38px; }
+.hud .sc { display: flex; flex-direction: column; }
+.hud .lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
+.hud b { font-family: var(--font-display); font-size: clamp(22px, 7vw, 28px); line-height: 1; font-variant-numeric: tabular-nums; color: var(--accent); }
+.lives { display: flex; gap: 4px; }
+.ai-chip { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: #06223d; background: var(--ai); padding: 4px 9px; border-radius: 99px; white-space: nowrap; }
+.chips-row { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; pointer-events: none; }
+.ai-chip.fx { background: var(--accent); color: var(--accent-ink); }
+.ai-chip.combo { background: var(--good); color: #052a1f; }
+.prog { display: flex; flex-direction: column; gap: 4px; }
+.letters { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.letters span { font-family: var(--font-display); font-size: clamp(11px, 3.8vw, 15px); text-align: center; padding: 3px 0; border-radius: 6px; border: 2px solid var(--line); color: var(--muted); background: transparent; transition: background .2s, color .2s; }
+.letters span.got { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.letters span.next { border-color: var(--accent); color: var(--accent); animation: blink 1.4s infinite; }
+.stages { display: flex; justify-content: space-between; gap: 4px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.stages span { min-width: 0; white-space: nowrap; }
+.stages span.on { color: var(--accent); font-weight: 600; }
+.bar { height: 6px; background: var(--panel); border-radius: 99px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0); }
+.stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: var(--ground); border-radius: 12px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+canvas { display: block; }
+.gate { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; padding: clamp(10px, 3vw, 14px); background: rgba(8,14,24,.88); overflow-y: auto; }
+.gate .sig { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; font-weight: 700; font-size: 15px; }
+.gate .q { font-family: var(--font-display); font-size: 18px; }
+.opts { display: flex; flex-direction: column; gap: 8px; }
+.opt { text-align: left; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 11px 12px; min-height: 50px; width: 100%; min-width: 0; font-weight: 700; font-size: 14px; line-height: 1.3; }
+.opt:active:not([disabled]) { background: var(--panel-2); }
+.opt.good { border-color: var(--good); background: rgba(52,211,160,.18); }
+.opt.bad { border-color: var(--bad); background: rgba(255,98,114,.18); }
+.opt.dim { opacity: .45; }
+.gate .fb { min-height: 36px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.gate .fb.good { color: var(--good); } .gate .fb.bad { color: var(--bad); }
+.gate .bar > i { background: var(--ai); transform: scaleX(1); }
+
+/* End */
+.score-xl { font-family: var(--font-display); font-size: clamp(56px, 20vw, 92px); line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.rank { font-family: var(--font-display); font-size: 24px; text-wrap: balance; }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--panel); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat b { font-family: var(--font-display); font-size: 22px; font-variant-numeric: tabular-nums; }
+.stat span { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.takeaway { background: var(--panel-2); border-left: 4px solid var(--ai); border-radius: 8px; padding: 10px 12px; font-weight: 700; }
+.end-actions { display: flex; flex-direction: column; gap: 10px; padding-bottom: 6px; }
+
+/* Big-screen board */
+.board-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 8px 0 20px; }
+.board-head { display: flex; flex-direction: column; gap: 6px; }
+.board-head h1 { font-family: var(--font-display); font-size: clamp(36px, 7vw, 84px); line-height: .95; }
+.board-head h1 span { color: var(--accent); }
+.live { display: inline-flex; gap: 8px; align-items: center; font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--good); }
+.live i { width: 9px; height: 9px; border-radius: 50%; background: var(--good); animation: blink 1.6s infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+.board .lb ol { gap: 8px; }
+.board .lb li { grid-template-columns: clamp(44px, 6vw, 84px) 1fr auto; padding: clamp(8px, 1.3vw, 16px) clamp(12px, 2vw, 24px); border-radius: 12px; font-size: clamp(18px, 3vw, 40px); }
+.board .lb li:nth-child(1) { background: var(--accent); color: var(--accent-ink); }
+.board .lb li:nth-child(1) .rk { color: var(--accent-ink); }
+.board .lb .sc { font-size: clamp(18px, 3vw, 40px); }
+.scan { background: var(--panel); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.scan h3 { font-family: var(--font-display); font-size: 22px; }
+#qr { background: #fff; padding: 10px; border-radius: 10px; line-height: 0; }
+.scan p { color: var(--muted); font-size: 13px; word-break: break-all; }
+.dash-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.tile { background: var(--panel); border-radius: 12px; padding: clamp(10px, 1.6vw, 20px); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile b { font-family: var(--font-display); font-size: clamp(22px, 4vw, 52px); line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile span { font-family: var(--font-mono); font-size: clamp(10px, 1.2vw, 14px); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.board .feed li, .board .feed .sc { font-size: clamp(13px, 1.6vw, 20px); }
+.board .feed li { padding: 8px 12px; grid-template-columns: 44px minmax(0, 1fr) auto; }
+.board .feed li:nth-child(1) { background: var(--panel); color: var(--fg); }
+.board .feed li:nth-child(1) .rk { color: var(--accent); }
+.board .feed .rk { font-size: 12px; font-family: var(--font-mono); }
+.lb li.flash { animation: flashrow 2.4s ease-out; }
+@keyframes flashrow { from { background: var(--good); color: var(--accent-ink); } }
+@media (max-width: 600px) { .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 900px) { .board-wrap { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; } .board-head, .dash-stats { grid-column: 1 / -1; } }
+/* Fit hardening: never let text or controls run off the screen */
+body { overflow-x: hidden; }
+@supports (height: 100dvh) { body { height: 100dvh; } }
+.opt, .gate .sig, .takeaway, .miss p, .lede, .rules span, .lb .nm, .rank, .gate .fb, .small { overflow-wrap: anywhere; }
+.gate .sig { font-size: clamp(13px, 3.8vw, 15px); }
+.opt { font-size: clamp(13px, 3.6vw, 14px); }
+.gate > :first-child { margin-top: auto; }
+.gate > :last-child { margin-bottom: auto; }
+.score-xl { font-size: clamp(44px, 16vw, 92px); overflow-wrap: anywhere; }
+.stat b { font-size: clamp(14px, 4.6vw, 22px); white-space: nowrap; overflow-wrap: normal; }
+.name-row input, .name-row { max-width: 100%; }
+/* Focus rings sit inside the controls so the screen's edge never clips them */
+.screen { padding: 4px; }
+.name-row input:focus, .name-row input:focus-visible { outline: none; border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+button:focus-visible, a:focus-visible { outline-offset: -3px; }
+@media (prefers-reduced-motion: reduce) { .live i { animation: none; } * { transition: none !important; } }
+</style>
+
+<script>
+/* SETTINGS. By default the game uses the built-in Netlify leaderboard at /api/scores (see DEPLOY.md).
+   If that is not available it falls back to scores saved on this device.
+   endpoint: set to "" for device-only scores, or to another leaderboard URL (for example a Google Apps Script web app).
+   playUrl: link the big-screen QR code points to. Leave empty to use this page's own address. */
+window.DEALRUSH_CONFIG = { playUrl: "" };
+</script>
+</head>
+<body>
+<main id="app">
+  <section class="screen" id="s-start">
+    <div class="hero">
+      <div class="eyebrow">SKO 2027 &middot; Pipeline Challenge</div>
+      <h1>Deal <span>Rush</span></h1>
+      <p class="lede">Run the pipeline. Collect MEDDPICC. Jump the risks. Close the deal in about 2 minutes.</p>
+    </div>
+    <div class="name-row" id="name-row">
+      <label for="name">Your name for the leaderboard</label>
+      <input id="name" type="text" maxlength="14" autocomplete="off" placeholder="Enter a name">
+    </div>
+    <button class="big-btn" id="btn-start">Start run</button>
+    <div class="row2">
+      <button class="ghost-btn" id="btn-sound">Sound: off</button>
+      <a class="ghost-btn" href="#board" style="text-align:center;text-decoration:none;color:var(--fg)">Big screen board</a>
+    </div>
+    <div class="lb" id="lb-start"><h3>Top 3 players</h3><ol></ol></div>
+    <details class="how" open>
+      <summary>How to play</summary>
+      <ul class="rules">
+        <li><b class="y">Controls</b><span>Swipe left or right to change lane, up to jump, down to slide.</span></li>
+        <li><b class="r">Risks</b><span>Objections, delays, stalls, competitors, budget freezes, pushbacks and homing magnets cost a heart. You have 3.</span></li>
+        <li><b class="a">AI Copilot</b><span>Grab the star for 5 seconds of autopilot. It misses 1 in 4. Watch it.</span></li>
+        <li><b class="y">Coins</b><span>Grab coins in quick runs to build a combo up to x5. Every coin counts.</span></li>
+        <li><b class="y">Magnet</b><span>Grab GrayKey to smash through blocks, AXIOM to pull in coins, Magnet One for a heart.</span></li>
+        <li><b class="y">MEDDPICC</b><span>Collect all 8 letters. A right answer in a review earns that letter. All 8 is a Fully Qualified bonus.</span></li>
+        <li><b class="g">Reviews</b><span>4 MEDDPICC questions pop up with plenty of time to read. Right answer: +300, a speed bonus, a heart and its letter.</span></li>
+      </ul>
+    </details>
+    <div class="small" id="best-start"></div>
+  </section>
+
+  <section class="screen game" id="s-game" hidden>
+    <div class="hud">
+      <div class="sc"><span class="lbl">Score</span><b id="h-score">0</b></div>
+      
+      <div class="lives" id="h-lives"></div>
+    </div>
+    <div class="prog">
+      <div class="letters" id="h-letters"></div>
+      <div class="bar"><i id="h-bar"></i></div>
+    </div>
+    <div class="stage" id="stage">
+      <div class="chips-row"><span class="ai-chip" id="h-ai" hidden>AI COPILOT <span id="h-ai-t"></span></span><span class="ai-chip fx" id="h-fx" hidden></span><span class="ai-chip combo" id="h-combo" hidden></span></div>
+      <canvas id="cv" aria-label="Deal Rush game"></canvas>
+      <div class="gate" id="gate" hidden>
+        <div class="eyebrow" id="g-tag">Deal review</div>
+        <div class="bar"><i id="g-bar"></i></div>
+        <div class="fb" id="g-fb"></div>
+        <div class="sig" id="g-sig"></div>
+        <div class="q" id="g-q">Next best action?</div>
+        <div class="opts" id="g-opts"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="s-end" hidden>
+    <div class="eyebrow" id="e-reason"></div>
+    <div class="score-xl" id="e-score">0</div>
+    <div class="rank" id="e-rank"></div>
+    <div class="stats">
+      <div class="stat"><b id="e-dist">0</b><span>Pipeline m</span></div>
+      <div class="stat"><b id="e-coinn">0</b><span>Coins, best combo</span></div>
+      <div class="stat"><b id="e-coins">0</b><span>MEDDPICC</span></div>
+      <div class="stat"><b id="e-gates">0/4</b><span>Reviews won</span></div>
+    </div>
+    <div class="takeaway" id="e-take"></div>
+    <div class="small" id="e-save"></div>
+    <div class="lb" id="lb-end"><h3>Leaderboard</h3><ol></ol></div>
+    <div class="end-actions">
+      <button class="big-btn" id="btn-again">Run again</button>
+      <div class="small" id="best-end"></div>
+    </div>
+  </section>
+
+  <section class="screen board" id="s-board" hidden>
+    <div class="board-wrap">
+      <div class="board-head">
+        <span class="live"><i></i>Live</span>
+        <h1>Deal <span>Rush</span> leaderboard</h1>
+        <div class="small" id="lb-mode" style="text-align:left"></div>
+      </div>
+      <div class="dash-stats">
+        <div class="tile"><b id="st-players">0</b><span>Players</span></div>
+        <div class="tile"><b id="st-top">0</b><span>Top score</span></div>
+        <div class="tile"><b id="st-avg">0</b><span>Average</span></div>
+        <div class="tile"><b id="st-qual">0</b><span>Fully qualified</span></div>
+      </div>
+      <div class="lb" id="lb-board"><ol></ol></div>
+      <div class="side">
+        <div class="lb feed" id="lb-feed"><h3>Latest scores</h3><ol></ol></div>
+        <div class="scan">
+          <h3>Scan to play</h3>
+          <div id="qr"></div>
+          <p id="qr-url"></p>
+          <a href="#" id="board-back">Back to game</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var PLAY_URL = (window.DEALRUSH_CONFIG && window.DEALRUSH_CONFIG.playUrl) || location.href.split("#")[0];
+  var W = 480, H = 640, GY = 560, F = 320, HOR = 150, ZSPAWN = 2200, ZROAD = 6000, LW = 120;
+  var G = 3000, V0 = 900, RUN = 100, GATE_T = [20, 42, 64, 86], GATE_MS = 30000;
+  var STAGES = ["Prospect", "Discovery", "Evaluation", "Negotiation", "Closed Won"];
+
+  // MEDDPICC questions. a[0] is always the correct answer; options are shuffled at runtime.
+  // tag must match an element name in LET. q is the question shown under the scenario.
+  var GATES = [
+    { tag: "Metrics", q: "How do you build the Metrics?", sig: "Your champion says the platform 'should speed up casework.' There is no number, no baseline and no date.",
+      a: ["Ask what turnaround is today, what it must be, by when, and who owns it.", "Share a case study showing how a similar agency cut its turnaround times.", "Offer a short pilot so the team can see the speed difference first-hand.", "Add your own estimate of time saved to the proposal for them to react to."],
+      why: "Metrics must be the customer's own numbers: a baseline, a target, a date and an owner. Your estimate or another agency's results do not count." },
+    { tag: "Metrics", q: "Which MEDDPICC element is weakest?", sig: "The business case shows annual savings, but every figure came from your own ROI calculator. The customer has not confirmed any of them.",
+      a: ["Metrics", "Identify Pain", "Decision Criteria", "Economic Buyer"],
+      why: "Savings only count as Metrics when the customer owns and agrees the numbers." },
+    { tag: "Metrics", q: "What is your best first move?", sig: "The customer says, 'Cost is our biggest concern.'",
+      a: ["Ask which cost they mean: per case, overtime, outsourcing or licence spend.", "Walk through the licensing options so they can choose the lowest-cost one.", "Ask what budget they have set aside so you can size the proposal to it.", "Offer a discount if they are able to commit before the end of the quarter."],
+      why: "Finding out what 'cost' is being measured turns a vague worry into a Metric you can build a case on." },
+    { tag: "Metrics", q: "Which is the strongest Metric?", sig: "The lab director lists goals for the new tools.",
+      a: ["Reduce phone extraction time from 9 days to 3 by the end of Q2.", "Clear the 400-device backlog.", "Save examiners about 10 hours a week once rolled out.", "Cut extraction time by roughly a third across the whole lab."],
+      why: "A strong Metric has a baseline, a target and a date. Each of the others is missing at least one of the three." },
+    { tag: "Economic Buyer", q: "What is the MEDDPICC risk?", sig: "Your champion says, 'Our director approved the budget last year, so we are all set. I will handle the paperwork.' You have never spoken to the director.",
+      a: ["The Economic Buyer is unconfirmed, and last year's approval may not apply.", "The Paper Process looks too simple for a purchase of this size and type.", "The champion seems too eager and may be overstating how far along things are.", "Competition has not been discussed, so a rival could still enter the process."],
+      why: "You cannot assume budget authority. Meet the Economic Buyer and confirm the funds and the decision for this purchase." },
+    { tag: "Economic Buyer", q: "What is your best next step?", sig: "A deputy chief runs the evaluation. She says the chief signs anything over $50K, but the chief has never joined a call.",
+      a: ["Ask the deputy to help arrange a short meeting with the chief about outcomes.", "Ask the deputy to forward the proposal to the chief with a short summary note.", "Finish the evaluation first, then ask the chief for the final approval.", "Invite the chief to the final demonstration so they can see it for themselves."],
+      why: "Reach the Economic Buyer early and around outcomes, with your contact's help. A forwarded proposal or a late invitation keeps the chief out of the conversation that matters." },
+    { tag: "Economic Buyer", q: "Which best describes an Economic Buyer?", sig: "Your team is mapping the stakeholders on a deal.",
+      a: ["Controls the budget and can approve spend even if others object.", "Signs the purchase order once everything else has been agreed.", "Is the most senior person who attends the product demonstration.", "Leads the technical evaluation and recommends which vendor to buy."],
+      why: "The Economic Buyer holds budget authority and can say yes when others say no. Signing the paperwork is a separate role." },
+    { tag: "Economic Buyer", q: "What is still missing?", sig: "You meet the CFO. She says, 'Sounds good, send it to procurement.' She has not said what problem this spend would solve for her.",
+      a: ["Her own reason to spend: the outcome she needs and how she would measure it.", "A formal quote she can hand straight to procurement to start the review.", "A signed NDA so that she can feel comfortable sharing the budget details.", "A one-page executive summary of the product's main capabilities and benefits."],
+      why: "An Economic Buyer funds outcomes. Until you know hers, a polite 'send it to procurement' is not a commitment." },
+    { tag: "Decision Criteria", q: "What is your best response?", sig: "The evaluation team sends a 60-line technical checklist. Nothing in it covers reporting or training, which your champion says matter most.",
+      a: ["Ask your champion to help add those items and agree how they are weighted.", "Answer every line of the checklist as completely and accurately as you can.", "Cover reporting and training in the demo even though they are not listed.", "Ask the director to overrule the checklist and add reporting and training."],
+      why: "Shape the criteria early, with your champion. Winning every line of an incomplete checklist can still lose the deal." },
+    { tag: "Decision Criteria", q: "Which MEDDPICC element is this?", sig: "Evaluators will score each tool on supported device models, extraction speed and court-ready reporting.",
+      a: ["Decision Criteria", "Metrics", "Decision Process", "Identify Pain"],
+      why: "These are the standards the customer uses to compare vendors, which is the Decision Criteria." },
+    { tag: "Decision Criteria", q: "Which element needs the most work?", sig: "Two vendors are on the shortlist. The customer says, 'We will choose whichever fits us best.'",
+      a: ["Decision Criteria", "Competition", "Decision Process", "Champion"],
+      why: "'Fits best' has not been defined. Without agreed criteria, the choice can go either way." },
+    { tag: "Decision Criteria", q: "How do you test those criteria?", sig: "Your champion says the criteria are 'speed, accuracy and price.'",
+      a: ["Ask what speed and accuracy mean in practice and how each will be scored.", "Ask how the three are weighted against each other and who agreed the weights.", "Build a comparison chart on speed, accuracy and price to share with the team.", "Ask which of the three matters most to the director and the evaluation lead."],
+      why: "Labels are not criteria. Get the definitions, the source and the scoring before you build your case." },
+    { tag: "Decision Process", q: "What is your best next step?", sig: "After a strong demo the customer says, 'We will take it to the committee.' There is no date and no list of members.",
+      a: ["Ask who sits on it, when it meets and what each member needs to see.", "Ask whether you can present to the committee yourself at its next meeting.", "Send a committee-ready summary of the proposal for your champion to share.", "Offer to answer any questions that committee members might have for you."],
+      why: "Map the people, the dates and what each one needs before you try to influence the outcome." },
+    { tag: "Decision Process", q: "What do you build?", sig: "The customer wants a decision by Dec 15. You do not know the steps between now and then.",
+      a: ["A shared plan built back from Dec 15, with steps, owners and dates they agree.", "An internal forecast showing how likely the deal is to close by Dec 15.", "A weekly check-in schedule that keeps your champion up to date on progress.", "A timeline of your own deliverables and milestones up to Dec 15."],
+      why: "A mutual plan makes the customer's process visible and agreed. The others only describe your side." },
+    { tag: "Decision Process", q: "Which describes the Decision Process?", sig: "A new rep asks what the Decision Process covers.",
+      a: ["The steps, people and timeline the customer follows to reach a decision.", "The legal and procurement approvals needed to sign a contract.", "The standards the customer uses to compare vendors against each other.", "The internal reviews your own company runs before approving a deal."],
+      why: "Contract approvals are the Paper Process, and vendor comparison standards are the Decision Criteria." },
+    { tag: "Paper Process", q: "What is your first move?", sig: "You have a verbal yes with two weeks left in the quarter. The customer says, 'Procurement will just need to review it.' You have not seen their process.",
+      a: ["Ask for the procurement contact and walk through the steps and turnaround.", "Send the contract now so it is already waiting in their procurement queue.", "Offer a small discount for signing before the end of this quarter.", "Ask your champion to push procurement to review it as quickly as possible."],
+      why: "'Just a review' hides steps, forms and queues. Learn them before you promise a close date." },
+    { tag: "Paper Process", q: "How do you handle it?", sig: "Procurement says contracts over $50K need legal and board approval.",
+      a: ["Find the board dates and legal's turnaround, then work back to a signing date.", "Offer a shorter initial term to bring the contract value under the threshold.", "Keep the close date and flag the risk in your forecast until it clears.", "Ask your champion to get the board to approve the purchase ahead of schedule."],
+      why: "Plan around the real approval calendar instead of around it or against it." },
+    { tag: "Paper Process", q: "Which belongs to the Paper Process?", sig: "A new rep is building a close plan.",
+      a: ["Security review, legal redlines and procurement forms.", "Which committee members will vote and how they will vote on the purchase.", "Which product features they will test during the pilot and how they will rate them.", "What business result they expect to measure after the purchase."],
+      why: "The Paper Process is everything between a yes and a signature: legal, security and procurement steps." },
+    { tag: "Identify Pain", q: "What is your best response?", sig: "The prospect says, 'We are doing fine. We just want to see what is new.'",
+      a: ["Ask about recent cases that took longer than they should have, and why.", "Give a short overview of what is new in the latest product release.", "Offer a trial so that they can explore the new features on their own.", "Share a story about a similar agency that improved its results."],
+      why: "Pain surfaces in specific recent events. Features and stories do not uncover it." },
+    { tag: "Identify Pain", q: "Which question digs deepest into pain?", sig: "A lab says its backlog is 'a bit long.'",
+      a: ["What happens to a case when results are delayed by that backlog?", "How many devices are waiting in the backlog at this moment in time?", "Who is responsible for managing and prioritizing the backlog day to day?", "Which tools do you use to work through the backlog today?"],
+      why: "Consequences make pain real. Counts, owners and tools are useful but come second." },
+    { tag: "Identify Pain", q: "What is the best next step?", sig: "Examiners feel the pain every day, but their manager does not see a problem.",
+      a: ["Help the examiners quantify the impact so the manager can see the cost.", "Look for a contact in a different department who feels the same pain.", "Demonstrate the product to the manager so they can see the benefit.", "Check back after the next quarterly review when budgets are discussed."],
+      why: "Pain that is not quantified stays invisible to the people who fund the fix." },
+    { tag: "Identify Pain", q: "Which is the strongest statement of pain?", sig: "You are writing up discovery notes.",
+      a: ["Cases waiting over 90 days risk being dismissed in court.", "The current tool is slow and takes too long to process evidence.", "Examiners dislike the interface and find it hard to learn and use.", "The lab wants to modernize its tools and processes this year."],
+      why: "Strong pain has a clear business consequence the customer cares about." },
+    { tag: "Champion", q: "What does this suggest?", sig: "Your main contact loves the product and takes every call. When you ask to meet the director he says, 'Let me handle that.'",
+      a: ["He may be a friendly contact, not yet a tested champion.", "He is a strong champion who is protecting the deal from outside interference.", "The director is clearly not the Economic Buyer on this deal.", "He is simply too busy to take on any further next steps right now."],
+      why: "A real champion opens doors. Blocking access to the buyer is a warning sign." },
+    { tag: "Champion", q: "How can you test a champion?", sig: "A contact says they are 'fully behind' your solution.",
+      a: ["Ask for something that costs them effort, like a meeting with the budget holder.", "Ask how much they like the product and how it compares to alternatives.", "Check how quickly they reply to your emails and how often they join calls.", "See whether they forward your messages and materials to other colleagues."],
+      why: "Enthusiasm is cheap. Action that costs the champion effort or risk shows real influence." },
+    { tag: "Champion", q: "What is your best action?", sig: "Your champion says they are leaving the agency next month.",
+      a: ["Widen your relationships now and ask who will carry the project forward.", "Ask your champion to write a thorough handover note for their replacement.", "Offer a discount so that the deal can close before they leave.", "Pause the deal and restart once a replacement has been hired and settled."],
+      why: "Do not depend on one person. Widen your relationships while your champion can still introduce you." },
+    { tag: "Champion", q: "Which is true of a champion?", sig: "A teammate asks how a champion differs from a friendly contact.",
+      a: ["Has influence inside the organization and a personal win if the deal succeeds.", "Holds the budget and signs off the final spend for the project.", "Is the person who will use the product more than anyone else.", "Is whoever introduced you to the account and arranged your first meeting."],
+      why: "A champion combines power, influence and a personal reason to see the deal succeed." },
+    { tag: "Competition", q: "How should you treat this?", sig: "The customer mentions their IT team might build a tool in-house instead.",
+      a: ["As competition: learn what it would cost and take, then position against it.", "As a technical question that your engineers should answer for the team.", "As unlikely to happen, since they are already talking to you about buying.", "As a pricing objection that you can address with a discount or terms."],
+      why: "Building in-house is a real alternative. Treat it like any other competitor." },
+    { tag: "Competition", q: "What is your best move?", sig: "A rival vendor is also in the evaluation. Your champion says, 'Both look fine to us.'",
+      a: ["Ask which criteria separate the two, then prove your fit on those.", "Match the rival's price so the decision does not come down to cost.", "Point out the rival's weaknesses during the demonstration to the team.", "Offer extra services and training to help you stand out from the other."],
+      why: "Find the criteria that decide the outcome and win on those, rather than on price or criticism." },
+    { tag: "Competition", q: "What counts as competition in MEDDPICC?", sig: "A rep lists competitors in the CRM.",
+      a: ["Any alternative, including doing nothing or building in-house.", "Only the vendors that are on the customer's formal shortlist.", "Only the vendors named in the CRM competitor field for the deal.", "Any vendor that our company competes with anywhere in the world."],
+      why: "Competition includes every alternative the customer could choose, including the status quo." }
+  ];
+  var LET = [
+    { k: "M", n: "Metrics" }, { k: "E", n: "Economic Buyer" }, { k: "D", n: "Decision Criteria" }, { k: "D", n: "Decision Process" },
+    { k: "P", n: "Paper Process" }, { k: "I", n: "Identify Pain" }, { k: "C", n: "Champion" }, { k: "C", n: "Competition" }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var cv = $("cv"), ctx = cv.getContext("2d");
+  var view = { s: 1 };
+  var S = null, raf = 0, gateTimer = 0, wakeLock = null;
+  var screenNow = "start";
+
+  function shuffle(a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
+  function hash(i) { return ((Math.sin(i * 127.1) * 43758.5453) % 1 + 1) % 1; }
+
+  /* ---------- sound ---------- */
+  var AC = null, soundOn = false;
+  function beep(f, d, type, vol, f2) {
+    if (!soundOn) return;
+    try {
+      AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+      var o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || "square"; o.frequency.value = f;
+      if (f2) o.frequency.linearRampToValueAtTime(f2, AC.currentTime + d);
+      g.gain.value = vol || 0.04;
+      o.connect(g); g.connect(AC.destination);
+      g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + d);
+      o.start(); o.stop(AC.currentTime + d);
+    } catch (e) {}
+  }
+  function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+
+  /* ---------- screens ---------- */
+  function showScreen(id) {
+    screenNow = id;
+    ["start", "game", "end", "board"].forEach(function (s) { $("s-" + s).hidden = s !== id; });
+    document.body.classList.toggle("board", id === "board");
+    if (id === "game") fit();
+    if (id === "board") { makeQR(); try { if (navigator.wakeLock && navigator.wakeLock.request) navigator.wakeLock.request("screen").then(function (l) { wakeLock = l; }, function () {}); } catch (e) {} }
+  }
+  function route() {
+    if (location.hash === "#board") { if (S && !S.over) stopGame(); showScreen("board"); }
+    else if (screenNow === "board") showScreen("start");
+  }
+
+  /* ---------- canvas fit ---------- */
+  function fit() {
+    var wrap = $("stage"), cw = wrap.clientWidth, ch = wrap.clientHeight;
+    if (cw > 0 && ch > 0) { H = Math.round(Math.max(560, Math.min(900, W * ch / cw))); GY = H - 80; HOR = Math.round(H * 0.235); }
+    var sc = Math.min(cw / W, ch / H);
+    if (!isFinite(sc) || sc <= 0) sc = 1;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.style.width = Math.floor(W * sc) + "px"; cv.style.height = Math.floor(H * sc) + "px";
+    cv.width = Math.round(W * sc * dpr); cv.height = Math.round(H * sc * dpr);
+    view.s = (W * sc * dpr) / W;
+  }
+  window.addEventListener("resize", function () { if (screenNow === "game") fit(); });
+  window.addEventListener("orientationchange", function () { setTimeout(function () { if (screenNow === "game") fit(); }, 250); });
+  try { new ResizeObserver(function () { if (screenNow === "game") fit(); }).observe($("stage")); } catch (e) {}
+
+  // Rotating picker: 4 questions, each on a different MEDDPICC element, preferring ones not seen recently on this device.
+  var ELIDX = {};
+  function pickGates() {
+    var seen = [];
+    try { seen = JSON.parse(store("dealrush-seen2") || "[]"); } catch (e) { seen = []; }
+    var chosen = [];
+    shuffle(LET.map(function (l, i) { return i; })).slice(0, GATE_T.length).forEach(function (ei) {
+      var name = LET[ei].n;
+      var pool = GATES.map(function (g, i) { return i; }).filter(function (i) { return GATES[i].tag === name; });
+      var fresh = pool.filter(function (i) { return seen.indexOf(i) < 0; });
+      if (!fresh.length) { seen = seen.filter(function (i) { return pool.indexOf(i) < 0; }); fresh = pool; }
+      chosen.push(shuffle(fresh)[0]);
+    });
+    try { store("dealrush-seen2", JSON.stringify(seen.concat(chosen))); } catch (e) {}
+    return shuffle(chosen).map(function (i) { return GATES[i]; });
+  }
+
+  /* ---------- game ---------- */
+  function newGame() {
+    S = { t: 0, dist: 0, speed: 600, bonus: 0, coins: 0, lives: 3, lane: 0, laneX: 0, lean: 0, h: 0, vh: 0, slide: 0, slideQ: false, buf: 0,
+      inv: 0, shake: 0, obs: [], pickups: [], parts: [], nextRow: 800, nextStar: 16, combo: 0, comboT: 0, maxCombo: 0, spd: 0, nextProd: 9, gk: 0, ax: 0, letterIdx: 0, got: [false, false, false, false, false, false, false, false], letterOn: false, nextLetter: 6, nextMagnet: 15, lastRow: 0, rowExtra: 0, gateIdx: 0, gates: pickGates(),
+      ai: 0, misled: 0, gatesOK: 0, paused: false, over: false, msg: "", msgT: 0, last: performance.now(), hudKey: "", gateDone: false };
+  }
+  function startGame() {
+    var name = cleanName($("name").value);
+    if (!name) { $("name-row").classList.add("err"); $("name").focus(); return; }
+    $("name-row").classList.remove("err");
+    store("dealrush-name", name);
+    if (location.hash === "#board") location.hash = "";
+    showScreen("game");
+    newGame();
+    $("gate").hidden = true;
+    try { if (navigator.wakeLock && navigator.wakeLock.request) navigator.wakeLock.request("screen").then(function (l) { wakeLock = l; }, function () {}); } catch (e) {}
+    S.msg = "SWIPE TO DODGE"; S.msgT = 4;
+    cancelAnimationFrame(raf); S.last = performance.now();
+    raf = requestAnimationFrame(loop);
+  }
+  function stopGame() { if (S) S.over = true; cancelAnimationFrame(raf); clearInterval(gateTimer); }
+  function cleanName(v) { return String(v || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 14); }
+
+  /* ---------- actions ---------- */
+  function ok() { return S && !S.over && !S.paused; }
+  function moveLane(d) {
+    if (!ok()) return;
+    var n = Math.max(-1, Math.min(1, S.lane + d));
+    if (n !== S.lane) { S.lane = n; S.lean = d; beep(520, 0.06, "square", 0.03, 700); }
+  }
+  function jump() {
+    if (!ok()) return;
+    if (S.h <= 2) { S.vh = V0; S.slide = 0; S.slideQ = false; beep(420, 0.12, "square", 0.04, 760); puff(W / 2 + S.laneX * LW, GY, 4, "#9fb4cf"); }
+    else S.buf = 0.14;
+  }
+  function slide() {
+    if (!ok()) return;
+    if (S.h <= 2) { S.slide = 0.65; beep(220, 0.14, "sawtooth", 0.03, 120); }
+    else { S.vh = -1500; S.slideQ = true; }
+  }
+  function puff(x, y, n, col) {
+    for (var i = 0; i < n; i++) S.parts.push({ x: x, y: y, vx: (Math.random() - 0.5) * 240, vy: -Math.random() * 240, life: 0.5 + Math.random() * 0.3, col: col });
+  }
+
+  var PRODS = { graykey: { n: "GRAYKEY", ab: "GK", c: "#9fb0c6" }, axiom: { n: "AXIOM", ab: "AX", c: "#b79bff" }, one: { n: "MAGNET ONE", ab: "M1", c: "#ff8a3d" } };
+  function gainProd(k) {
+    if (k === "graykey") { S.gk = 4; S.msg = "GRAYKEY: SMASH THROUGH!"; }
+    else if (k === "axiom") { S.ax = 6; S.msg = "AXIOM: EVIDENCE SWEEP"; }
+    else { S.lives = Math.min(3, S.lives + 1); S.inv = Math.max(S.inv, 2.5); S.msg = "MAGNET ONE: +1 HEART"; }
+    S.msgT = 2; beep(620, 0.25, "triangle", 0.05, 1000); buzz(20);
+  }
+  function gainLetter(k) {
+    if (S.letterIdx >= 8) return;
+    if (k === undefined || S.got[k]) k = S.got.indexOf(false);
+    var L = LET[k];
+    S.got[k] = true; S.letterIdx++; S.bonus += 150; S.letterOn = false; S.nextLetter = S.t + 6;
+    S.pickups.forEach(function (q) { if (q.kind === "letter") q.got = true; });
+    S.msg = L.k + ": " + L.n.toUpperCase() + " +150"; S.msgT = 1.6;
+    beep(740, 0.18, "triangle", 0.05, 1100); buzz(15);
+    if (S.letterIdx === 8) { S.bonus += 1500; S.msg = "FULLY QUALIFIED! +1500"; S.msgT = 2.4; beep(880, 0.5, "triangle", 0.06, 1500); }
+  }
+
+  /* ---------- spawning ---------- */
+  function addObs(type, lane, z, row) {
+    var o;
+    if (type === "barrier") o = { type: type, lane: lane, z: z, len: 50, lo: 0, h: 60, label: ["OBJECTION", "DELAY", "STALL"][Math.floor(Math.random() * 3)] };
+    else if (type === "wall") o = { type: type, lane: lane, z: z, len: 170, lo: 0, h: 160, label: ["COMPETITOR", "BUDGET"][Math.floor(Math.random() * 2)] };
+    else if (type === "pit") o = { type: type, lane: lane, z: z, len: 130, lo: 0, h: 0, label: "" };
+    else if (type === "mover") o = { type: type, lane: lane, z: z, len: 60, lo: 0, h: 130, label: "PUSHBACK", ph: Math.random() * 6.28 };
+    else if (type === "magnet") o = { type: type, lane: lane, z: z, len: 40, lo: 30, h: 100, label: "", locked: false };
+    else o = { type: "beam", lane: lane, z: z, len: 30, lo: 58, h: 230, label: "FREEZE" };
+    S.obs.push(o); row.push(o); return o;
+  }
+  function spawnRow() {
+    var t = S.t, lanes = [-1, 0, 1], types = ["barrier", "beam"], row = [], z = ZSPAWN;
+    if (t > 5) types.push("pit");
+    if (t > 12) types.push("wall", "wall");
+    if (t > 20 && Math.random() < 0.18) {
+      lanes.forEach(function (l) { addObs("barrier", l, z, row); });
+      var cg = Math.max(520, S.speed * 0.62);
+      lanes.forEach(function (l) { addObs("beam", l, z + cg, row); });
+      S.rowExtra = cg; return;
+    }
+    if (t > 28 && Math.random() < 0.15) { addObs("mover", 0, z, row); return; }
+    var n = t < 22 ? 1 : (t < 55 ? (Math.random() < 0.55 ? 2 : 1) : (Math.random() < 0.5 ? 2 : 3));
+    if (n === 3) { var ty = Math.random() < 0.5 ? "barrier" : "beam"; lanes.forEach(function (l) { addObs(ty, l, z, row); }); }
+    else shuffle(lanes).slice(0, n).forEach(function (l) { addObs(types[Math.floor(Math.random() * types.length)], l, z, row); });
+    var free = lanes.filter(function (l) { return !row.some(function (o) { return o.lane === l; }); });
+    if (free.length && Math.random() < 0.8) {
+      var fl = free[Math.floor(Math.random() * free.length)];
+      for (var i = 0; i < 5; i++) S.pickups.push({ kind: "coin", lane: fl, z: z + i * 80, h: 30 });
+    }
+    row.forEach(function (o) {
+      if (o.type === "barrier" && Math.random() < 0.7) { [[-40, 85], [30, 120], [100, 85]].forEach(function (c) { S.pickups.push({ kind: "coin", lane: o.lane, z: z + c[0], h: c[1] }); }); }
+      else if (o.type === "pit" && Math.random() < 0.7) { [[10, 80], [65, 115], [120, 80]].forEach(function (c) { S.pickups.push({ kind: "coin", lane: o.lane, z: z + c[0], h: c[1] }); }); }
+      else if (o.type === "beam" && Math.random() < 0.7) { [-30, 15, 60].forEach(function (dz) { S.pickups.push({ kind: "coin", lane: o.lane, z: z + dz, h: 20 }); }); }
+    });
+  }
+
+  function hurt(o) {
+    if (S.inv > 0) return;
+    S.lives--; S.inv = 1.6; S.shake = 0.3; o.dead = true; S.combo = 0; S.comboT = 0;
+    if (o.ai === "miss") S.misled++;
+    puff(W / 2 + S.laneX * LW, GY - S.h - 40, 14, "#ff6272");
+    beep(140, 0.25, "sawtooth", 0.06, 60); buzz([40, 40, 40]);
+    S.msg = o.type === "wall" ? "BLOCKED DEAL!" : o.type === "magnet" ? "MAGNET HIT!" : o.type === "pit" ? "STALLED DEAL!" : o.type === "mover" ? "PUSHBACK HIT!" : "RISK HIT!"; S.msgT = 1.2;
+    if (S.lives <= 0) finish(false);
+  }
+
+  function laneFree(l, zFrom, zTo) {
+    return !S.obs.some(function (o) { return !o.dead && Math.abs(o.lane - l) < 0.5 && o.z < zTo && o.z + o.len > zFrom; });
+  }
+  function autopilot() {
+    var best = null;
+    S.obs.forEach(function (o) { if (!o.dead && o.z + o.len > 0 && Math.abs(o.lane - S.lane) < 0.5 && (!best || o.z < best.z)) best = o; });
+    if (!best || best.handled) return;
+    if (best.ai === undefined) best.ai = Math.random() < 0.25 ? "miss" : "ok";
+    var sp = S.speed;
+    if (best.type === "wall" || best.type === "mover" || best.type === "magnet") {
+      if (best.z > sp * 0.5) return;
+      best.handled = true;
+      if (best.ai === "miss") return;
+      var opts = [S.lane - 1, S.lane + 1].filter(function (l) { return l >= -1 && l <= 1; });
+      var pick = opts.filter(function (l) { return laneFree(l, best.z - 120, best.z + best.len + 220); })[0];
+      if (pick === undefined) pick = opts.filter(function (l) { return laneFree(l, best.z - 60, best.z + best.len + 60); })[0];
+      if (pick !== undefined) moveLane(pick - S.lane);
+    } else if (best.type === "barrier" || best.type === "pit") {
+      if (best.z > sp * 0.26) return;
+      best.handled = true;
+      if (best.ai === "ok") jump();
+    } else {
+      if (best.z > sp * 0.13) return;
+      best.handled = true;
+      if (best.ai === "ok") slide();
+    }
+  }
+
+  function update(dt) {
+    S.t += dt;
+    if (S.t >= RUN) { finish(true); return; }
+    if (S.gateIdx < GATE_T.length && S.t >= GATE_T[S.gateIdx]) { openGate(); return; }
+    S.speed = 600 + 560 * (S.t / RUN);
+    if (S.spd < 3 && S.t >= [18, 42, 68][S.spd]) { S.spd++; S.msg = "FASTER!"; S.msgT = 1.4; beep(300, 0.35, "sawtooth", 0.04, 700); }
+    var dz = S.speed * dt; S.dist += dz;
+    S.comboT = Math.max(0, S.comboT - dt); if (S.comboT === 0) S.combo = 0; S.gk = Math.max(0, S.gk - dt); S.ax = Math.max(0, S.ax - dt); S.inv = Math.max(0, S.inv - dt); S.shake = Math.max(0, S.shake - dt); S.msgT = Math.max(0, S.msgT - dt);
+
+    if (S.t < RUN - 3 && S.dist >= S.nextRow) { S.rowExtra = 0; spawnRow(); S.nextRow = S.dist + S.speed * 0.95 + 300 + S.rowExtra; S.lastRow = S.dist; }
+    if (S.t >= S.nextMagnet && S.t < RUN - 6 && S.dist - S.lastRow > S.speed * 0.9) {
+      addObs("magnet", [-1, 0, 1][Math.floor(Math.random() * 3)], ZSPAWN, []);
+      S.msg = "MAGNET INCOMING. MOVE LATE!"; S.msgT = 1.6; beep(300, 0.3, "sawtooth", 0.04, 520);
+      S.nextRow = Math.max(S.nextRow, S.dist + S.speed * 1.3);
+      S.nextMagnet = S.t + (S.t < 50 ? 12 : 8) + Math.random() * 3;
+    }
+    if (S.letterIdx < 8 && !S.letterOn && S.t >= S.nextLetter && S.t < RUN - 4) {
+      var ll = shuffle([-1, 0, 1]), pl = ll.filter(function (l) { return laneFree(l, ZSPAWN - 200, ZSPAWN + 350); })[0];
+      if (pl === undefined) pl = ll[0];
+      var nl = S.got.indexOf(false);
+      S.pickups.push({ kind: "letter", idx: nl, lane: pl, z: ZSPAWN, h: 60 });
+      S.letterOn = true; S.msg = "COLLECT " + LET[nl].k + ": " + LET[nl].n.toUpperCase(); S.msgT = 1.8;
+    }
+    if (S.t >= S.nextProd && S.t < RUN - 8) {
+      var pk = ["graykey", "axiom", "one"][Math.floor(Math.random() * 3)];
+      S.pickups.push({ kind: "prod", prod: pk, lane: [-1, 0, 1][Math.floor(Math.random() * 3)], z: ZSPAWN, h: 50 });
+      S.nextProd = S.t + 13 + Math.random() * 5;
+    }
+    if (S.t >= S.nextStar && S.t < RUN - 8) { S.pickups.push({ kind: "star", lane: [-1, 0, 1][Math.floor(Math.random() * 3)], z: ZSPAWN, h: 50 }); S.nextStar = S.t + 22 + Math.random() * 6; }
+
+    if (S.ai > 0) { S.ai -= dt; autopilot(); }
+
+    // movement
+    S.laneX += (S.lane - S.laneX) * Math.min(1, 16 * dt);
+    S.lean *= Math.max(0, 1 - 7 * dt);
+    S.buf = Math.max(0, S.buf - dt); S.slide = Math.max(0, S.slide - dt);
+    if (S.h > 0 || S.vh > 0) {
+      S.vh -= G * dt; S.h += S.vh * dt;
+      if (S.h <= 0) {
+        if (S.vh < -400) puff(W / 2 + S.laneX * LW, GY, 3, "#9fb4cf");
+        S.h = 0; S.vh = 0;
+        if (S.slideQ) { S.slideQ = false; S.slide = 0.65; }
+        if (S.buf > 0) { S.buf = 0; S.vh = V0; }
+      }
+    }
+
+    // objects
+    var bottom = S.h, top = S.h + (S.slide > 0 && S.h < 3 ? 40 : 84), i;
+    for (i = 0; i < S.obs.length; i++) {
+      var o = S.obs[i]; o.z -= dz;
+      if (o.type === "mover") o.lane = Math.sin(S.t * 1.5 + o.ph) * 1.15;
+      if (o.type === "magnet" && !o.locked) {
+        if (o.z < Math.max(540, S.speed * 0.7)) o.locked = true;
+        else { var dl = S.laneX - o.lane; o.lane += Math.max(-1, Math.min(1, dl)) * Math.min(Math.abs(dl), 1.4 * dt); }
+      }
+      if (o.dead || o.z >= 28 || o.z + o.len <= -28 || Math.abs(o.lane - S.laneX) >= (o.type === "magnet" ? 0.5 : 0.62)) continue;
+      var hit = o.type === "barrier" ? bottom < o.h : o.type === "pit" ? bottom < 8 : o.type === "beam" ? (top > o.lo && bottom < o.h) : o.type === "magnet" ? (top > 35 && bottom < 100) : true;
+      if (hit) {
+        if (S.gk > 0) { if (o.type !== "pit") { o.dead = true; S.bonus += 50; puff(W / 2 + S.laneX * LW, GY - 60, 12, "#9fb0c6"); beep(240, 0.15, "square", 0.05, 90); S.shake = 0.12; } }
+        else hurt(o);
+      }
+    }
+    S.obs = S.obs.filter(function (q) { return q.z + q.len > -50 && !q.dead; });
+    for (i = 0; i < S.pickups.length; i++) {
+      var p = S.pickups[i]; p.z -= dz;
+      if (S.ax > 0 && p.kind === "coin" && p.z < 900 && p.z > -20) { p.lane += (S.laneX - p.lane) * Math.min(1, 7 * dt); p.h += (40 - p.h) * Math.min(1, 7 * dt); p.z -= 450 * dt; }
+      var near = p.kind === "letter" ? (Math.abs(p.z) < 60 && Math.abs(p.lane - S.laneX) < 0.65)
+        : (Math.abs(p.z) < 40 && Math.abs(p.lane - S.laneX) < 0.6 && p.h + 16 > bottom && p.h - 16 < top);
+      if (near) {
+        p.got = true;
+        if (p.kind === "coin") { S.combo = S.comboT > 0 ? Math.min(5, S.combo + 1) : 1; S.comboT = 1.2; S.maxCombo = Math.max(S.maxCombo, S.combo); S.coins++; S.bonus += 10 * S.combo; beep(900 + S.combo * 60, 0.08, "square", 0.03, 1300 + S.combo * 80); }
+        else if (p.kind === "letter") gainLetter(p.idx);
+        else if (p.kind === "prod") gainProd(p.prod);
+        else { S.ai = 5; S.msg = "AI COPILOT ON. VERIFY IT."; S.msgT = 2; beep(500, 0.3, "triangle", 0.05, 1100); buzz(20); }
+      }
+    }
+    S.pickups = S.pickups.filter(function (q) {
+      if (q.got) return false;
+      if (q.z <= -60) { if (q.kind === "letter") { S.letterOn = false; S.nextLetter = S.t + 3; S.msg = "MISSED " + LET[q.idx].k + ". IT COMES AGAIN."; S.msgT = 1.2; } return false; }
+      return true;
+    });
+    for (i = 0; i < S.parts.length; i++) { var a = S.parts[i]; a.life -= dt; a.vy += 900 * dt; a.x += a.vx * dt; a.y += a.vy * dt; }
+    S.parts = S.parts.filter(function (q) { return q.life > 0; });
+  }
+
+  /* ---------- deal review gate ---------- */
+  function openGate() {
+    var q = S.gates[S.gateIdx++];
+    S.paused = true; S.held = false; S.buf = 0; S.gateDone = false;
+    S.gateOpts = shuffle(q.a.map(function (t, n) { return { text: t, correct: n === 0 }; }));
+    S.gateQ = q; S.gateStart = performance.now();
+    $("g-sig").textContent = q.sig; $("g-q").textContent = q.q || "Next best action?"; $("g-tag").textContent = "Deal review \u00b7 " + q.tag; $("g-fb").textContent = ""; $("g-fb").className = "fb";
+    var box = $("g-opts"); box.innerHTML = "";
+    S.gateOpts.forEach(function (o, n) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "opt"; b.textContent = o.text;
+      b.addEventListener("click", function () { resolveGate(n); });
+      box.appendChild(b); o.el = b;
+    });
+    $("g-bar").style.transform = "scaleX(1)";
+    $("gate").hidden = false;
+    clearInterval(gateTimer);
+    gateTimer = setInterval(function () {
+      var left = GATE_MS - (performance.now() - S.gateStart);
+      $("g-bar").style.transform = "scaleX(" + Math.max(0, left / GATE_MS) + ")";
+      if (!S.gateDone) { $("g-fb").className = "fb"; $("g-fb").textContent = "Answer fast for a bonus: +" + speedBonus(left); }
+      if (left <= 0) resolveGate(-1);
+    }, 50);
+  }
+  function speedBonus(left) { var f = Math.max(0, 1 - (GATE_MS - left) / 20000); return Math.round(300 * f / 10) * 10; }
+  function resolveGate(n) {
+    if (!S || S.gateDone) return;
+    S.gateDone = true; clearInterval(gateTimer);
+    var ok = n >= 0 && S.gateOpts[n].correct, fb = $("g-fb"), sb = ok ? speedBonus(GATE_MS - (performance.now() - S.gateStart)) : 0;
+    S.gateOpts.forEach(function (o, k) { o.el.disabled = true; if (o.correct) o.el.classList.add("good"); else if (k === n) o.el.classList.add("bad"); else o.el.classList.add("dim"); });
+    if (ok) {
+      S.bonus += 300 + sb; S.lives = Math.min(3, S.lives + 1); S.gatesOK++; S.ai = 5; gainLetter(LET.map(function (l) { return l.n; }).indexOf(S.gateQ.tag));
+      fb.className = "fb good"; fb.textContent = "+300" + (sb ? " +" + sb + " speed bonus" : "") + ", +1 heart, letter earned, Copilot on. " + S.gateQ.why;
+      beep(660, 0.2, "triangle", 0.05, 990);
+    } else {
+      S.lives--;
+      fb.className = "fb bad"; fb.textContent = (n < 0 ? "Out of time. " : "Not the best move. ") + S.gateQ.why;
+      beep(160, 0.25, "sawtooth", 0.05, 80); buzz([40, 40, 40]);
+    }
+    setTimeout(function () {
+      if (!S || S.over) return;
+      $("gate").hidden = true;
+      if (S.lives <= 0) { finish(false); return; }
+      S.paused = false; S.inv = 1.5; S.last = performance.now();
+    }, 1700);
+  }
+
+  /* ---------- loop / draw ---------- */
+  function loop(now) {
+    if (!S || S.over) return;
+    raf = requestAnimationFrame(loop);
+    var dt = Math.min(0.033, (now - S.last) / 1000); if (!(dt >= 0)) dt = 0;
+    S.last = now;
+    if (!S.paused) update(dt);
+    if (S.over) return;
+    draw(); renderHud();
+  }
+
+  function sc(z) { return F / (F + Math.max(z, -F + 25)); }
+  function py(z, h) { var s = sc(z); return HOR + (GY - HOR) * s - h * s; }
+  function pxl(lane, z) { return W / 2 + lane * LW * sc(z); }
+  function quad(a, b, c, d, col) { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.closePath(); ctx.fill(); }
+
+  // 3D box: lane (float lane units), z (front face), len, top/bottom heights, half width in px, colours, optional label/windows
+  function box(lane, z, len, top, bot, hw, col, label, windows) {
+    var sF = sc(z), sB = sc(z + len), cx = lane * LW;
+    var xl = W / 2 + (cx - hw) * sF, xr = W / 2 + (cx + hw) * sF, xlB = W / 2 + (cx - hw) * sB, xrB = W / 2 + (cx + hw) * sB;
+    var yT = py(z, top), yB = py(z, bot), yTB = py(z + len, top), yBB = py(z + len, bot);
+    quad([xl, yT], [xr, yT], [xrB, yTB], [xlB, yTB], col.t);
+    if (cx > 8) quad([xl, yT], [xlB, yTB], [xlB, yBB], [xl, yB], col.s);
+    else if (cx < -8) quad([xr, yT], [xrB, yTB], [xrB, yBB], [xr, yB], col.s);
+    ctx.fillStyle = col.f; ctx.fillRect(xl, yT, xr - xl, yB - yT);
+    if (windows && sF > 0.12) {
+      var cols = 3, rows = Math.max(2, Math.floor((top - bot) / 70));
+      for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) {
+        if (hash(Math.floor(z) * 0 + (windows * 31 + r * 7 + c * 13)) > 0.45) {
+          ctx.fillStyle = "rgba(255,214,130,.8)";
+          ctx.fillRect(xl + (xr - xl) * (0.12 + c * 0.3), yT + (yB - yT) * (0.1 + r / rows * 0.85), (xr - xl) * 0.18, (yB - yT) / rows * 0.4);
+        }
+      }
+    }
+    if (label && sF > 0.25) {
+      var fs = Math.max(8, Math.round(Math.min(18 * sF, (xr - xl) * 1.3 / (label.length * 0.6 + 0.8))));
+      ctx.font = "bold " + fs + "px 'IBM Plex Mono', monospace"; ctx.textAlign = "center";
+      var tw = ctx.measureText(label).width + fs * 0.8, th = fs + 8, lx = (xl + xr) / 2, ly = (yT + yB) / 2;
+      if (tw <= (xr - xl) * 1.5) {
+        ctx.fillStyle = "rgba(6,12,22,.88)"; rr(lx - tw / 2, ly - th / 2, tw, th, 5);
+        ctx.fillStyle = "#ffffff"; ctx.fillText(label, lx, ly + fs * 0.35);
+      }
+    }
+  }
+
+  var COL_RED = { f: "#e8465a", t: "#ff7f8e", s: "#a82a3c", l: "#fff0f2" };
+  var COL_WALL = { f: "#7a3b8f", t: "#9d58b3", s: "#552766", l: "#f6e6ff" };
+  var COL_ICE = { f: "#9ed8ff", t: "#d4f1ff", s: "#6fb3dd", l: "#06223d" };
+  var COL_POST = { f: "#6c7f9c", t: "#8fa3c0", s: "#4a5b75" };
+  var COL_BLD = { f: "#1f3a66", t: "#2d4f86", s: "#162b4d" };
+
+  function draw() {
+    ctx.setTransform(view.s, 0, 0, view.s, 0, 0);
+    ctx.save();
+    if (S.shake > 0) ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+    var g = ctx.createLinearGradient(0, 0, 0, HOR + 20);
+    g.addColorStop(0, "#0d1b33"); g.addColorStop(0.7, "#2b3f6b"); g.addColorStop(1, "#f09a52");
+    ctx.fillStyle = g; ctx.fillRect(-10, -10, W + 20, HOR + 30);
+    ctx.fillStyle = "#ffcf7a"; ctx.beginPath(); ctx.arc(W / 2, HOR - 2, 52, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = "#0a121e"; ctx.fillRect(-10, HOR, W + 20, H - HOR + 10);
+
+    // road bands
+    var step = 200, off = S.dist % step, kb = Math.floor(S.dist / step), i, z, z0, z1;
+    for (i = -1; i * step - off < ZROAD; i++) {
+      z0 = Math.max(i * step - off, -F + 30); z1 = i * step - off + step; if (z1 <= z0) continue;
+      quad([pxl(-1.5, z0), py(z0, 0)], [pxl(1.5, z0), py(z0, 0)], [pxl(1.5, z1), py(z1, 0)], [pxl(-1.5, z1), py(z1, 0)], ((kb + i) & 1) ? "#1d3252" : "#182a45");
+    }
+    // lane dividers and edges
+    var dstep = 120, doff = S.dist % dstep;
+    [-0.5, 0.5].forEach(function (l) {
+      for (var k = -1; k * dstep - doff < 3000; k++) {
+        var a = Math.max(k * dstep - doff, -F + 30), b = k * dstep - doff + 60; if (b <= a) continue;
+        var wa = 2.5 * sc(a), wb = 2.5 * sc(b);
+        quad([pxl(l, a) - wa, py(a, 0)], [pxl(l, a) + wa, py(a, 0)], [pxl(l, b) + wb, py(b, 0)], [pxl(l, b) - wb, py(b, 0)], "#6a88b3");
+      }
+    });
+    ctx.strokeStyle = "#34d3a0"; ctx.lineWidth = 3;
+    [-1.5, 1.5].forEach(function (l) { ctx.beginPath(); ctx.moveTo(pxl(l, ZROAD), py(ZROAD, 0)); ctx.lineTo(pxl(l, -F + 40), py(-F + 40, 0)); ctx.stroke(); });
+
+    // buildings
+    var boff = S.dist % 240, bk = Math.floor(S.dist / 240);
+    for (i = 24; i >= -1; i--) {
+      z = i * 240 - boff;
+      [-1, 1].forEach(function (side) {
+        var idx = bk + i, hgt = 150 + hash(idx * 7 + side * 3) * 280;
+        box(side * 2.65, z, 200, hgt, 0, LW * 1.0, COL_BLD, "", idx * 2 + (side > 0 ? 1 : 0) + 5);
+      });
+    }
+    var hz = ctx.createLinearGradient(0, HOR, 0, HOR + 60);
+    hz.addColorStop(0, "rgba(240,154,82,.55)"); hz.addColorStop(1, "rgba(240,154,82,0)");
+    ctx.fillStyle = hz; ctx.fillRect(-10, HOR, W + 20, 60);
+
+    // objects far to near
+    var items = [];
+    S.obs.forEach(function (o) { items.push({ z: o.z, o: o }); });
+    S.pickups.forEach(function (p) { items.push({ z: p.z, p: p }); });
+    items.sort(function (a, b) { return b.z - a.z; });
+    items.forEach(function (it) {
+      var zz = it.z;
+      ctx.globalAlpha = zz > 1500 ? Math.max(0, 1 - (zz - 1500) / 700) : 1;
+      if (it.o) drawObs(it.o); else drawPickup(it.p);
+    });
+    ctx.globalAlpha = 1;
+    drawPlayer();
+    S.parts.forEach(function (p) { ctx.globalAlpha = Math.max(0, p.life * 2); ctx.fillStyle = p.col; ctx.fillRect(p.x, p.y, 5, 5); });
+    ctx.globalAlpha = 1;
+    if (S.msgT > 0 && S.msg) {
+      ctx.globalAlpha = Math.min(1, S.msgT * 2);
+      var mf = 18; ctx.textAlign = "center";
+      ctx.font = mf + "px 'Archivo Black', Impact, sans-serif";
+      var mw = ctx.measureText(S.msg).width + 32;
+      while (mw > W - 24 && mf > 9) { mf--; ctx.font = mf + "px 'Archivo Black', Impact, sans-serif"; mw = ctx.measureText(S.msg).width + 32; }
+      ctx.fillStyle = "rgba(6,12,22,.9)"; rr(W / 2 - mw / 2, 76, mw, 40, 10);
+      ctx.fillStyle = "#ffffff"; ctx.fillText(S.msg, W / 2, 102); ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  var COL_AUDIT = { f: "#ff8a3d", t: "#ffb36b", s: "#b85a1c", l: "#2a1200" };
+  function drawPit(o) {
+    var a = o.z, b = o.z + o.len, sa = sc(a), sb = sc(b), hw = LW * 0.43;
+    quad([pxl(o.lane, a) - hw * sa, py(a, 0)], [pxl(o.lane, a) + hw * sa, py(a, 0)], [pxl(o.lane, b) + hw * sb, py(b, 0)], [pxl(o.lane, b) - hw * sb, py(b, 0)], "#04070c");
+    ctx.strokeStyle = "#ff6272"; ctx.lineWidth = Math.max(1, 4 * sa);
+    ctx.beginPath(); ctx.moveTo(pxl(o.lane, a) - hw * sa, py(a, 0)); ctx.lineTo(pxl(o.lane, a) + hw * sa, py(a, 0)); ctx.stroke();
+  }
+  function drawMagnet(o) {
+    var s = sc(o.z), x = pxl(o.lane, o.z), bob = Math.sin(S.t * 7) * 4, y = py(o.z, 62 + bob);
+    if (o.z > 0) {
+      var al = o.locked ? 0.32 : 0.14, hw = 0.42;
+      quad([pxl(o.lane - hw, 0), py(0, 0)], [pxl(o.lane + hw, 0), py(0, 0)], [pxl(o.lane + hw, o.z), py(o.z, 0)], [pxl(o.lane - hw, o.z), py(o.z, 0)], "rgba(255,98,114," + al + ")");
+    }
+    ctx.lineCap = "butt"; ctx.strokeStyle = "#e8465a"; ctx.lineWidth = 16 * s;
+    ctx.beginPath(); ctx.arc(x, y, 24 * s, 0, Math.PI); ctx.stroke();
+    ctx.fillStyle = "#e8465a"; ctx.fillRect(x - 32 * s, y - 16 * s, 16 * s, 16 * s); ctx.fillRect(x + 16 * s, y - 16 * s, 16 * s, 16 * s);
+    ctx.fillStyle = "#e6eef8"; ctx.fillRect(x - 32 * s, y - 30 * s, 16 * s, 14 * s); ctx.fillRect(x + 16 * s, y - 30 * s, 16 * s, 14 * s);
+    if (Math.floor(S.t * 12) % 2 === 0) { ctx.strokeStyle = "#ffe08a"; ctx.lineWidth = 3 * s; ctx.beginPath(); ctx.moveTo(x - 8 * s, y - 36 * s); ctx.lineTo(x, y - 28 * s); ctx.lineTo(x + 8 * s, y - 36 * s); ctx.stroke(); }
+  }
+  function drawObs(o) {
+    var hw = LW * 0.41;
+    if (o.type === "barrier") box(o.lane, o.z, o.len, o.h, 0, hw, COL_RED, o.label);
+    else if (o.type === "wall") box(o.lane, o.z, o.len, o.h, 0, hw, COL_WALL, o.label);
+    else if (o.type === "mover") box(o.lane, o.z, o.len, o.h, 0, hw, COL_AUDIT, o.label);
+    else if (o.type === "pit") drawPit(o);
+    else if (o.type === "magnet") drawMagnet(o);
+    else {
+      box(o.lane - 0.42, o.z, o.len, 140, 0, 6, COL_POST);
+      box(o.lane + 0.42, o.z, o.len, 140, 0, 6, COL_POST);
+      box(o.lane, o.z, o.len, 125, 58, hw, COL_ICE, o.label);
+    }
+  }
+  function drawPickup(p) {
+    var s = sc(p.z), x = pxl(p.lane, p.z), y = py(p.z, p.h);
+    if (p.kind === "coin") {
+      var w = (Math.abs(Math.cos(S.t * 6 + p.z * 0.01)) * 8 + 3) * s;
+      ctx.fillStyle = "#ffb000"; ctx.beginPath(); ctx.ellipse(x, y, w, 11 * s, 0, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = "#ffe08a"; ctx.beginPath(); ctx.ellipse(x, y, Math.max(1, w - 4 * s), 6 * s, 0, 0, 6.2832); ctx.fill();
+    } else if (p.kind === "prod") {
+      var PR = PRODS[p.prod], ra = 25 * s, pby = y + Math.sin(S.t * 5 + p.z * 0.01) * 4 * s;
+      ctx.fillStyle = "rgba(255,255,255,.18)"; ctx.beginPath(); ctx.arc(x, pby, ra * 1.7, 0, 6.2832); ctx.fill();
+      ctx.beginPath(); for (var hk = 0; hk < 6; hk++) { var ha = hk * 1.0472 + 0.5236; ctx.lineTo(x + Math.cos(ha) * ra, pby + Math.sin(ha) * ra); }
+      ctx.closePath(); ctx.fillStyle = PR.c; ctx.fill(); ctx.lineWidth = Math.max(1, 3 * s); ctx.strokeStyle = "#ffffff"; ctx.stroke();
+      ctx.fillStyle = "#0e1a2b"; ctx.font = Math.round(18 * s) + "px 'Archivo Black', Impact, sans-serif"; ctx.textAlign = "center"; ctx.fillText(PR.ab, x, pby + 7 * s);
+      if (s > 0.45) { var pf = Math.max(10, Math.round(12 * s)); ctx.font = "bold " + pf + "px 'IBM Plex Mono', monospace"; ctx.lineWidth = 4; ctx.strokeStyle = "#0a121e"; ctx.lineJoin = "round"; ctx.strokeText(PR.n, x, pby + ra + 17 * s); ctx.fillStyle = "#ffffff"; ctx.fillText(PR.n, x, pby + ra + 17 * s); }
+    } else if (p.kind === "letter") {
+      var by = y + Math.sin(S.t * 5 + p.idx) * 4 * s, hs = 22 * s;
+      ctx.fillStyle = "rgba(255,176,0,.25)"; ctx.beginPath(); ctx.arc(x, by, hs * 1.7 * (1 + Math.sin(S.t * 6) * 0.08), 0, 6.2832); ctx.fill();
+      ctx.fillStyle = "#fff3c9"; rr(x - hs - 2 * s, by - hs - 2 * s, hs * 2 + 4 * s, hs * 2 + 4 * s, 9 * s);
+      ctx.fillStyle = "#ffb000"; rr(x - hs, by - hs, hs * 2, hs * 2, 8 * s);
+      ctx.fillStyle = "#1a1200"; ctx.font = Math.round(28 * s) + "px 'Archivo Black', Impact, sans-serif"; ctx.textAlign = "center"; ctx.fillText(LET[p.idx].k, x, by + 10 * s);
+      if (s > 0.45) { var cf = Math.max(10, Math.round(12 * s)); ctx.font = "bold " + cf + "px 'IBM Plex Mono', monospace"; ctx.lineWidth = 4; ctx.strokeStyle = "#0a121e"; ctx.lineJoin = "round"; ctx.strokeText(LET[p.idx].n.toUpperCase(), x, by + hs + 16 * s); ctx.fillStyle = "#ffe9a8"; ctx.fillText(LET[p.idx].n.toUpperCase(), x, by + hs + 16 * s); }
+    } else {
+      var r = 22 * s * (1 + Math.sin(S.t * 8) * 0.1);
+      ctx.fillStyle = "#7cc4ff"; ctx.beginPath();
+      for (var k = 0; k < 10; k++) { var rad = k % 2 ? r * 0.45 : r, ang = -1.5708 + k * 0.6283; ctx.lineTo(x + Math.cos(ang) * rad, y + Math.sin(ang) * rad); }
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#06223d"; ctx.font = "bold " + Math.round(12 * s) + "px 'IBM Plex Mono', monospace"; ctx.textAlign = "center"; ctx.fillText("AI", x, y + 4 * s);
+    }
+  }
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); ctx.fill();
+  }
+  function leg(dx, ang) {
+    ctx.save(); ctx.translate(dx, -28); ctx.rotate(ang);
+    ctx.fillStyle = "#22314d"; rr(-6, 0, 12, 22, 5);
+    ctx.fillStyle = "#ffffff"; rr(-8, 19, 16, 9, 4);
+    ctx.fillStyle = "#ffb000"; ctx.fillRect(-8, 26, 16, 3);
+    ctx.restore();
+  }
+  function drawPlayer() {
+    if (S.inv > 0 && Math.floor(S.inv * 12) % 2 === 0) return;
+    var x = W / 2 + S.laneX * LW, base = GY - S.h, air = S.h > 3, sl = S.slide > 0 && !air, sw = Math.sin(S.t * 16);
+    ctx.fillStyle = "rgba(0,0,0,.38)"; ctx.beginPath(); ctx.ellipse(x, GY + 4, 28 * Math.max(0.5, 1 - S.h / 260), 8, 0, 0, 6.2832); ctx.fill();
+    if (S.ai > 0) { ctx.fillStyle = "rgba(124,196,255,.25)"; ctx.beginPath(); ctx.arc(x, base - (sl ? 24 : 46), 58 + Math.sin(S.t * 10) * 3, 0, 6.2832); ctx.fill(); }
+    if (S.gk > 0) { ctx.strokeStyle = "rgba(199,210,224,.9)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(x, base - (sl ? 24 : 46), 50 + Math.sin(S.t * 14) * 3, 0, 6.2832); ctx.stroke(); }
+    if (S.ax > 0) { ctx.strokeStyle = "rgba(183,155,255,.85)"; ctx.lineWidth = 4; ctx.setLineDash([8, 8]); ctx.beginPath(); ctx.arc(x, base - (sl ? 24 : 46), 66, S.t * 3, S.t * 3 + 6.2832); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.save();
+    ctx.translate(x, base); ctx.rotate(S.lean * 0.2);
+    if (sl) ctx.scale(1.2, 0.5);
+    if (air) { leg(-9, -0.4); leg(9, 0.4); } else if (sl) { leg(-9, 0); leg(9, 0); } else { leg(-9, sw * 0.6); leg(9, -sw * 0.6); }
+    ctx.fillStyle = "#16b894"; rr(-22, -80, 44, 54, 11);
+    ctx.fillStyle = "#0f8d73";
+    ctx.save(); ctx.translate(-26, -76); ctx.rotate(air ? -0.8 : sw * 0.6); rr(-5, 0, 10, 30, 5); ctx.restore();
+    ctx.save(); ctx.translate(26, -76); ctx.rotate(air ? 0.8 : -sw * 0.6); rr(-5, 0, 10, 30, 5); ctx.restore();
+    ctx.fillStyle = "#18253e"; rr(-16, -76, 32, 36, 7);
+    ctx.fillStyle = "#ffb000"; ctx.fillRect(-16, -62, 32, 5);
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 8px 'IBM Plex Mono', monospace"; ctx.textAlign = "center"; ctx.fillText("SKO", 0, -49);
+    ctx.fillStyle = "#129a7d"; rr(-17, -96, 34, 20, 10);
+    ctx.fillStyle = "#2b1d18"; ctx.beginPath(); ctx.arc(0, -90, 14, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = "#ffb000"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, -90, 16, Math.PI, 0); ctx.stroke();
+    ctx.fillStyle = "#ffb000"; ctx.beginPath(); ctx.arc(-16, -90, 6, 0, 6.2832); ctx.arc(16, -90, 6, 0, 6.2832); ctx.fill();
+    ctx.restore();
+  }
+
+  /* ---------- HUD ---------- */
+  function heart(on) { return '<svg viewBox="0 0 24 22" width="24" height="22" aria-hidden="true"><path d="M12 21s-9-5.8-9-12a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6.2-9 12-9 12z" fill="' + (on ? "#ff6272" : "none") + '" stroke="#ff6272" stroke-width="2"/></svg>'; }
+  function score() { return Math.floor(S.dist / 10) + S.bonus; }
+  function renderHud() {
+    $("h-score").textContent = score().toLocaleString();
+    var key = S.lives + ":" + S.got.join("");
+    if (key !== S.hudKey) {
+      S.hudKey = key;
+      $("h-lives").innerHTML = heart(S.lives > 0) + heart(S.lives > 1) + heart(S.lives > 2);
+      var sp = $("h-letters").children; for (var i = 0; i < sp.length; i++) sp[i].className = S.got[i] ? "got" : (i === S.got.indexOf(false) ? "next" : "");
+    }
+    $("h-bar").style.transform = "scaleX(" + Math.min(1, S.t / RUN) + ")";
+    var ai = $("h-ai"); ai.hidden = !(S.ai > 0); if (S.ai > 0) $("h-ai-t").textContent = S.ai.toFixed(1) + "s";
+    var fx = $("h-fx"), act = S.gk > 0 ? ["GRAYKEY", S.gk] : S.ax > 0 ? ["AXIOM", S.ax] : null;
+    var cb = $("h-combo"); cb.hidden = !(S.combo > 1); if (S.combo > 1) cb.textContent = "COINS x" + S.combo;
+    fx.hidden = !act; if (act) fx.textContent = act[0] + " " + act[1].toFixed(1) + "s";
+  }
+
+  /* ---------- finish ---------- */
+  function rankFor(s) { return s >= 12000 ? "Forecast Oracle" : s >= 8000 ? "Risk Whisperer" : s >= 4000 ? "Deal Desk Regular" : "Pipeline Intern"; }
+  function finish(won) {
+    if (!S || S.over) return;
+    S.over = true; cancelAnimationFrame(raf); clearInterval(gateTimer);
+    try { if (wakeLock && wakeLock.release) wakeLock.release(); } catch (e) {}
+    var base = score(), win = won ? 1000 + S.lives * 500 : 0, total = base + win;
+    $("e-reason").textContent = won ? "Closed won" + " · +" + win + " close bonus" : "Deal lost with " + S.letterIdx + "/8 MEDDPICC";
+    $("e-score").textContent = total.toLocaleString();
+    $("e-rank").textContent = rankFor(total);
+    $("e-dist").textContent = Math.floor(S.dist / 10).toLocaleString();
+    $("e-coins").textContent = S.letterIdx + "/8"; $("e-coinn").textContent = S.coins + " x" + (S.maxCombo || 1);
+    $("e-gates").textContent = S.gatesOK + "/4";
+    var t;
+    if (S.misled > 0) t = "Copilot missed a risk " + S.misled + (S.misled === 1 ? " time" : " times") + " and it cost you a heart. Let AI help, but keep watching.";
+    else if (S.letterIdx >= 8) t = "Fully qualified. All 8 MEDDPICC letters means a deal you can forecast with confidence.";
+    else if (S.gatesOK === GATE_T.length) t = "4 for 4 on the MEDDPICC reviews. You read the signals, then chose the move.";
+    else t = "Open MEDDPICC gaps: " + LET.filter(function (l, i) { return !S.got[i]; }).map(function (l) { return l.n; }).slice(0, 3).join(", ") + ". Gaps like these are where deals stall.";
+    $("e-take").textContent = t;
+    var best = parseInt(store("dealrush-best") || "0", 10) || 0;
+    if (total > best) { store("dealrush-best", String(total)); best = total; $("best-end").textContent = "New personal best."; }
+    else $("best-end").textContent = "Your best on this device: " + best.toLocaleString();
+    S.total = total;
+    showScreen("end"); $("s-end").scrollTop = 0;
+    submitScore(total, won);
+  }
+
+  /* ---------- leaderboard ---------- */
+  // Local mode (no endpoint): scores live in this browser only.
+  // Shared mode: set endpoint in DEALRUSH_CONFIG. GET returns [{id,name,score}], POST takes {id,name,score,won,at} as text/plain JSON.
+  var CFG = window.DEALRUSH_CONFIG || {}, ENDPOINT = CFG.endpoint !== undefined ? CFG.endpoint : (location.protocol === "file:" ? "" : "/api/scores");
+  var LB = { rows: [], ready: false, failed: false, uid: store("dealrush-id") };
+  if (!LB.uid) { LB.uid = "p" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store("dealrush-id", LB.uid); }
+  function localRows() { try { return JSON.parse(store("dealrush-scores") || "[]"); } catch (e) { return []; } }
+  function normRows(arr) {
+    var best = {};
+    (arr || []).forEach(function (v) {
+      var sc = Number(v && v.score); if (!isFinite(sc)) return;
+      var id = String(v.id || v.name), cur = best[id];
+      if (!cur || sc > cur.score) best[id] = { id: id, name: cleanName(v.name) || "Player", score: sc, won: !!v.won, letters: Number(v.letters) || 0, at: Number(v.at) || 0 };
+    });
+    return Object.keys(best).map(function (k) { return best[k]; }).sort(function (a, b) { return b.score - a.score || (a.at || 1e15) - (b.at || 1e15); });
+  }
+  function ago(at) { if (!at) return ""; var m = Math.floor((Date.now() - at) / 60000); return m < 1 ? "now" : m < 60 ? m + "m" : Math.floor(m / 60) + "h"; }
+  function paint(el, limit, opts) {
+    opts = opts || {};
+    var ol = el.querySelector("ol"); ol.innerHTML = "";
+    if (!LB.ready) { addEmpty(ol, LB.failed ? "Leaderboard unavailable." : "Loading scores..."); return; }
+    var rows = opts.rows || LB.rows;
+    if (!rows.length) { addEmpty(ol, "No scores yet. Be the first."); return; }
+    rows.slice(0, limit).forEach(function (r, i) {
+      var li = document.createElement("li"), cls = [];
+      if (r.id === LB.uid) cls.push("you");
+      if (LB.prev && LB.prev[r.id] !== r.score) cls.push("flash");
+      li.className = cls.join(" ");
+      var a = document.createElement("span"); a.className = "rk"; a.textContent = opts.feed ? ago(r.at) : i + 1;
+      var b = document.createElement("span"); b.className = "nm"; b.textContent = r.name;
+      var c = document.createElement("span"); c.className = "sc"; c.textContent = r.score.toLocaleString();
+      li.appendChild(a); li.appendChild(b); li.appendChild(c); ol.appendChild(li);
+    });
+  }
+  function addEmpty(ol, msg) { var li = document.createElement("li"); li.className = "empty"; li.style.display = "block"; li.textContent = msg; ol.appendChild(li); }
+  function renderDash() {
+    var r = LB.rows, n = r.length, sum = 0, q = 0;
+    r.forEach(function (x) { sum += x.score; if (x.letters >= 8) q++; });
+    $("st-players").textContent = n;
+    $("st-top").textContent = n ? r[0].score.toLocaleString() : "0";
+    $("st-avg").textContent = n ? Math.round(sum / n).toLocaleString() : "0";
+    $("st-qual").textContent = q;
+  }
+  function paintAll() {
+    paint($("lb-start"), 3); paint($("lb-end"), 5); paint($("lb-board"), 10);
+    paint($("lb-feed"), 6, { feed: true, rows: LB.rows.slice().sort(function (a, b) { return b.at - a.at; }) });
+    renderDash();
+    var pv = {}; LB.rows.forEach(function (r) { pv[r.id] = r.score; });
+    LB.prev = LB.ready ? pv : null;
+  }
+  function modeNote() {
+    $("lb-mode").textContent = LB.offline ? "Shared leaderboard unreachable. Showing scores from this device." : (ENDPOINT ? "" : "Scores on this board are from this device only.");
+  }
+  function refresh() {
+    if (screenNow === "game") return;
+    if (!ENDPOINT) { LB.rows = normRows(localRows()); LB.ready = true; LB.failed = false; paintAll(); return; }
+    fetch(ENDPOINT + (ENDPOINT.indexOf("?") > -1 ? "&" : "?") + "t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error("bad"); return r.json(); })
+      .then(function (j) { LB.rows = normRows(Array.isArray(j) ? j : (j && j.scores) || []); LB.ready = true; LB.failed = false; LB.offline = false; modeNote(); paintAll(); })
+      .catch(function () { LB.rows = normRows(localRows()); LB.ready = true; LB.failed = true; LB.offline = true; modeNote(); paintAll(); });
+  }
+  function initBoard() {
+    modeNote();
+    (function tick() { refresh(); setTimeout(tick, screenNow === "board" ? 5000 : 20000); })();
+  }
+  function submitScore(total, won) {
+    var msg = $("e-save"), name = cleanName(store("dealrush-name")) || "Player", letters = S ? S.letterIdx : 0, rows = localRows(), found = false;
+    rows.forEach(function (r) { if (r.id === LB.uid) { found = true; if (total > r.score) { r.score = total; r.name = name; r.won = !!won; r.letters = letters; r.at = Date.now(); } } });
+    if (!found) rows.push({ id: LB.uid, name: name, score: total, won: !!won, letters: letters, at: Date.now() });
+    store("dealrush-scores", JSON.stringify(rows));
+    if (!ENDPOINT) { msg.textContent = "Score saved on this device."; refresh(); return; }
+    msg.textContent = "Saving score...";
+    fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ id: LB.uid, name: name, score: total, won: !!won, letters: letters, at: Date.now() }) })
+      .then(function (r) { if (!r.ok) throw new Error("bad"); msg.textContent = "Score sent to the leaderboard."; refresh(); })
+      .catch(function () { msg.textContent = "Saved on this device. Could not reach the leaderboard."; refresh(); });
+  }
+
+  /* ---------- QR for the big screen ---------- */
+  var qrDone = false;
+  function makeQR() {
+    $("qr-url").textContent = PLAY_URL.replace(/^https?:\/\//, "");
+    if (qrDone) return;
+    try { new QRCode($("qr"), { text: PLAY_URL, width: 200, height: 200, colorDark: "#0e1a2b", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M }); qrDone = true; }
+    catch (e) { $("qr").style.display = "none"; }
+  }
+
+  /* ---------- wiring ---------- */
+  var stage = $("stage"), touch = null;
+  stage.addEventListener("pointerdown", function (e) { if (e.target.closest && e.target.closest("#gate")) return; e.preventDefault(); touch = { x: e.clientX, y: e.clientY, t: performance.now(), done: false }; try { stage.setPointerCapture(e.pointerId); } catch (_) {} });
+  stage.addEventListener("pointermove", function (e) {
+    if (!touch || touch.done) return;
+    var dx = e.clientX - touch.x, dy = e.clientY - touch.y, ax = Math.abs(dx), ay = Math.abs(dy);
+    if (Math.max(ax, ay) < 26) return;
+    touch.done = true;
+    if (ax > ay) moveLane(dx > 0 ? 1 : -1); else if (dy < 0) jump(); else slide();
+  });
+  stage.addEventListener("pointerup", function () { if (touch && !touch.done && performance.now() - touch.t < 280) jump(); touch = null; });
+  stage.addEventListener("pointercancel", function () { touch = null; });
+  window.addEventListener("keydown", function (e) {
+    if (screenNow !== "game" || e.repeat) return;
+    var k = e.code;
+    if (k === "ArrowLeft" || k === "KeyA") { e.preventDefault(); moveLane(-1); }
+    else if (k === "ArrowRight" || k === "KeyD") { e.preventDefault(); moveLane(1); }
+    else if (k === "ArrowUp" || k === "KeyW" || k === "Space") { e.preventDefault(); jump(); }
+    else if (k === "ArrowDown" || k === "KeyS") { e.preventDefault(); slide(); }
+  });
+  LET.forEach(function (l) { var c = document.createElement("span"); c.textContent = l.k; c.title = l.n; $("h-letters").appendChild(c); });
+  $("btn-start").addEventListener("click", startGame);
+  $("btn-again").addEventListener("click", function () { showScreen("start"); });
+  $("btn-sound").addEventListener("click", function () { soundOn = !soundOn; $("btn-sound").textContent = "Sound: " + (soundOn ? "on" : "off"); if (soundOn) beep(660, 0.1, "triangle", 0.04); });
+  $("board-back").addEventListener("click", function (e) { e.preventDefault(); location.hash = ""; });
+  $("name").addEventListener("keydown", function (e) { if (e.key === "Enter") startGame(); });
+  $("name").value = cleanName(store("dealrush-name"));
+  var b0 = parseInt(store("dealrush-best") || "0", 10) || 0;
+  $("best-start").textContent = b0 ? "Your best on this device: " + b0.toLocaleString() : "Set your first score.";
+  window.addEventListener("hashchange", route);
+  initBoard(); route();
+})();
+</script>
+</body>
+</html>
