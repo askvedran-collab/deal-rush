@@ -155,6 +155,10 @@ canvas { display: block; }
 @keyframes flashrow { from { background: var(--good); color: var(--accent-ink); } }
 @media (max-width: 600px) { .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 900px) { .board-wrap { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; } .board-head, .dash-stats { grid-column: 1 / -1; } }
+#lb-board ol { max-height: 62vh; overflow-y: auto; padding-right: 0; }
+/* Hide scroll bars everywhere. Scrolling still works by touch, wheel and keys. */
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { display: none; width: 0; height: 0; }
 /* Fit hardening: never let text or controls run off the screen */
 body { overflow-x: hidden; }
 @supports (height: 100dvh) { body { height: 100dvh; } }
@@ -250,7 +254,7 @@ window.DEALRUSH_CONFIG = { playUrl: "" };
     </div>
     <div class="takeaway" id="e-take"></div>
     <div class="small" id="e-save"></div>
-    <div class="lb" id="lb-end"><h3>Leaderboard</h3><ol></ol></div>
+    <div class="lb" id="lb-end"><h3 id="lb-end-title">Top 3</h3><ol></ol></div>
     <div class="end-actions">
       <button class="big-btn" id="btn-again">Run again</button>
       <div class="small" id="best-end"></div>
@@ -270,7 +274,7 @@ window.DEALRUSH_CONFIG = { playUrl: "" };
         <div class="tile"><b id="st-avg">0</b><span>Average</span></div>
         <div class="tile"><b id="st-qual">0</b><span>Fully qualified</span></div>
       </div>
-      <div class="lb" id="lb-board"><ol></ol></div>
+      <div class="lb" id="lb-board"><h3 id="lb-board-title">All players</h3><ol></ol></div>
       <div class="side">
         <div class="lb feed" id="lb-feed"><h3>Latest scores</h3><ol></ol></div>
         <div class="scan">
@@ -1007,7 +1011,7 @@ window.DEALRUSH_CONFIG = { playUrl: "" };
   function ago(at) { if (!at) return ""; var m = Math.floor((Date.now() - at) / 60000); return m < 1 ? "now" : m < 60 ? m + "m" : Math.floor(m / 60) + "h"; }
   function paint(el, limit, opts) {
     opts = opts || {};
-    var ol = el.querySelector("ol"); ol.innerHTML = "";
+    var ol = el.querySelector("ol"), keep = ol.scrollTop; ol.innerHTML = "";
     if (!LB.ready) { addEmpty(ol, LB.failed ? "Leaderboard unavailable." : "Loading scores..."); return; }
     var rows = opts.rows || LB.rows;
     if (!rows.length) { addEmpty(ol, "No scores yet. Be the first."); return; }
@@ -1021,6 +1025,7 @@ window.DEALRUSH_CONFIG = { playUrl: "" };
       var c = document.createElement("span"); c.className = "sc"; c.textContent = r.score.toLocaleString();
       li.appendChild(a); li.appendChild(b); li.appendChild(c); ol.appendChild(li);
     });
+    ol.scrollTop = keep;
   }
   function addEmpty(ol, msg) { var li = document.createElement("li"); li.className = "empty"; li.style.display = "block"; li.textContent = msg; ol.appendChild(li); }
   function renderDash() {
@@ -1032,9 +1037,13 @@ window.DEALRUSH_CONFIG = { playUrl: "" };
     $("st-qual").textContent = q;
   }
   function paintAll() {
-    paint($("lb-start"), 3); paint($("lb-end"), 5); paint($("lb-board"), 10);
+    paint($("lb-start"), 3); paint($("lb-end"), 3); paint($("lb-board"), 500);
     paint($("lb-feed"), 6, { feed: true, rows: LB.rows.slice().sort(function (a, b) { return b.at - a.at; }) });
     renderDash();
+    var n = LB.rows.length, me = -1;
+    LB.rows.forEach(function (r, i) { if (r.id === LB.uid) me = i; });
+    $("lb-board-title").textContent = "All players" + (n ? " (" + n + ")" : "");
+    $("lb-end-title").textContent = "Top 3" + (me >= 0 ? " \u00b7 you are #" + (me + 1) + " of " + n : "");
     var pv = {}; LB.rows.forEach(function (r) { pv[r.id] = r.score; });
     LB.prev = LB.ready ? pv : null;
   }
@@ -1103,6 +1112,20 @@ window.DEALRUSH_CONFIG = { playUrl: "" };
   $("name").value = cleanName(store("dealrush-name"));
   var b0 = parseInt(store("dealrush-best") || "0", 10) || 0;
   $("best-start").textContent = b0 ? "Your best on this device: " + b0.toLocaleString() : "Set your first score.";
+  (function autoScroll() {
+    var hold = 0, pause = 0;
+    function stop() { hold = 8000; }
+    ["wheel", "touchstart", "pointerdown", "mouseenter"].forEach(function (ev) { $("lb-board").addEventListener(ev, stop, { passive: true }); });
+    setInterval(function () {
+      if (screenNow !== "board") return;
+      var ol = $("lb-board").querySelector("ol");
+      if (ol.scrollHeight <= ol.clientHeight + 4) return;
+      if (hold > 0) { hold -= 40; return; }
+      if (pause > 0) { pause -= 40; if (pause <= 0) ol.scrollTop = 0; return; }
+      ol.scrollTop += 1;
+      if (ol.scrollTop + ol.clientHeight >= ol.scrollHeight - 1) pause = 4000;
+    }, 40);
+  })();
   window.addEventListener("hashchange", route);
   initBoard(); route();
 })();

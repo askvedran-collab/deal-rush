@@ -38,7 +38,7 @@ export async function handle(req, store, adminKey) {
     const rows = (await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" }))))
       .filter((r) => r && typeof r.score === "number")
       .sort((a, b) => b.score - a.score || (a.at || 1e15) - (b.at || 1e15))
-      .slice(0, 200);
+      .slice(0, 500);
     return send(rows);
   }
 
